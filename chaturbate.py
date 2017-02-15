@@ -196,6 +196,10 @@ class Chaturbate(object):
 			"rtmpdump",
 			"--quiet",
 			"--live",
+			# Add Timeout
+			"--timeout", "20",
+			"--realtime",
+			#=============
 			extra_argument,
 			"--rtmp", "rtmp://" + flv_info[2] + "/live-edge",
 			"--pageUrl", "http://chaturbate.com/" + flv_info[1],
@@ -218,13 +222,14 @@ class Chaturbate(object):
 		:rtype: dict
 		"""
 		file_size = int(os.path.getsize(process_info['filename']))
+		recording_time = timedelta(seconds=int(time.time()) - process_info['time'])
 		return {
 			'file_size': file_size,
 			'formatted_file_size': Chaturbate.get_human_size(file_size),
 			'started_at': time.strftime(
 				"%H:%M", time.localtime(process_info['time'])),
-			'recording_time': str(
-				timedelta(seconds=int(time.time()) - process_info['time']))
+			'how_long': recording_time.total_seconds(),
+			'recording_time': str(recording_time)
 		}
 
 	def make_request(self, url):
@@ -307,9 +312,10 @@ class Chaturbate(object):
 					continue
 
 				# >>> ignore models not form wishlist
-				if not model_name in wish_list:
-					self.log.info("Ignore model: " + model_name)
-					continue
+				if len(wish_list) > 0:
+					if not model_name in wish_list:
+						self.log.info("Ignore model: " + model_name)
+						continue
 
 				models.append(model_name)
 		except Exception:
@@ -349,14 +355,14 @@ class Chaturbate(object):
 				self.log.info(".. " + model + " -> CAPTURED!")
 				# check if the show is private
 				"""
-				Â ÇÀÄÍÈÖÓ ÏÐÎÂÅÐÊÓ ÏÐÈÂÀÒÀ!!!
+				#Â ÇÀÄÍÈÖÓ ÏÐÎÂÅÐÊÓ ÏÐÈÂÀÒÀ!!!
 				self.log.info("Model " + model + " -> START CHECK PRIVATE")
-				if self.is_private(info) is False:
+				if self.is_private(info):
+					self.log.warning("But the show is private")
+				else:
 					self.log.info("Model " + model + " -> TRY CAPTURE")
 					self.capture(info)
 					self.log.info("Model " + model + " -> CAPTURED!")
-				else:
-					self.log.warning("But the show is private")
 				"""
 
 	def get_flv_info(self, model_name):
@@ -559,6 +565,18 @@ class Chaturbate(object):
 								  process_stats['recording_time'],
 								  process_stats['formatted_file_size']
 								 )
+				else:
+					self.log.info("WTF?!: %s - Duration: %s - Size: %s",
+								  process['model'],
+								  process_stats['recording_time'],
+								  process_stats['formatted_file_size']
+								 )
+					if process_stats['how_long'] > 60:
+						self.log.info("Forced stop recording: %s",
+									  process['model'])
+						#if process['process'].poll() is None:
+						process['process'].terminate()
+						self.clean_rtmpdump(process)
 
 	def is_private(self, rtmp_info):
 		"""
@@ -572,7 +590,7 @@ class Chaturbate(object):
 
 		date_time = datetime.now()
 		filename = ("test-" + rtmp_info[1] +
-					date_time.strftime("_%Y-%m-%dT%H%M%S") + ".flv")
+					date_time.strftime("_%Y%m%d%H%M%S") + ".flv")
 		filename = os.path.join(self.config['capturing_path'], filename)
 		process = self.run_rtmpdump(
 			rtmp_info, filename, extra_argument="-B " + str(seconds))
